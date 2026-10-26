@@ -2,19 +2,27 @@
 
 ## 1. Testing Philosophy
 
-In healthcare software, regressions in access control or scheduling logic can cause direct operational disruption and regulatory penalties. Testing prioritizes **domain logic correctness** and **boundary security**.
+Regressions in access control, agenda and financial logic have direct operational and regulatory impact, so testing prioritizes domain correctness and authorization boundaries.
 
 ## 2. Test Pyramid & Tooling
 
-| Test Type | Scope | Framework / Tools | Focus |
-|---|---|---|---|
-| **Unit Tests** | Domain Services & Pipes | Jest, ts-jest | RBAC permission evaluation, billing rule engines |
-| **Integration Tests** | Controllers & ORM Layer | Supertest, Testcontainers | DB transactions, tenant isolation middleware |
-| **Schedule Verification** | Operational Integrity | Custom Node.js audit scripts | Weekly schedule collision detection, vacancy auditing |
+Counts below were measured on a recent snapshot of the codebase by counting test files and `it`/`test` declarations. They are approximate and change over time.
+
+| Test Type | Scope | Framework / Tools | Size (approx.) | Focus |
+|---|---|---|---|---|
+| **Unit tests** | Services, guards, Luna components | Jest, ts-jest | 80 spec files, ~750 cases | RBAC, agenda transfer, financial rules, Luna routing/grounding/isolation, golden tests |
+| **End-to-end API tests** | Controllers and ORM layer | Jest, Supertest | 8 e2e suites, ~465 cases | BOLA/RBAC, agenda, financial, Luna |
+| **Browser tests** | Frontend flows | Playwright | 3 spec files, 7 tests | Financial, agenda transfer (including FORCE visibility by role), visual checks |
+| **Schedule verification** | Operational integrity | Node.js audit scripts | n/a | Schedule and pending-evolution audits |
+
+Testcontainers is not used.
 
 ## 3. Operational Integrity Scripts
 
-To ensure appointment consistency and database sanity during production updates, automated verification scripts were built into the deployment pipeline:
-- `schedule:weekly:audit` — Scans upcoming weekly slots for duplicate bookings or room overlaps.
-- `audit:agenda-production` — Cross-references practitioner availability matrices with active patient recurrences.
-- `clinical-records:pending:audit` — Identifies draft evolutions requiring practitioner signature beyond the 48-hour compliance window.
+- `schedule:weekly:audit`: scans weekly schedule data for inconsistencies.
+- `audit:agenda-production`: audits agenda data against production rules.
+- `clinical-records:pending:audit`: lists pending evolutions that still need completion.
+
+## 4. Luna Reliability
+
+Luna is covered by golden routing tests, adversarial and empirical specs, grounding and sandbox hardening specs, isolation/RBAC specs and opt-in specs. New assistant behavior is expected to ship with a golden test.

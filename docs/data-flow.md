@@ -1,37 +1,45 @@
 # Data Flow & Lifecycle — CPAE
 
-## 1. Patient Intake & Onboarding Flow
+## 1. Patient Intake Flow
 
 ```mermaid
 sequenceDiagram
     autonumber
     actor Reception as Reception Staff
-    participant Gateway as API Gateway
-    participant PatientMod as Patient Service
-    participant Audit as Audit Logger
+    participant API as NestJS API
+    participant Guards as Global Guards
+    participant PatientMod as Patients Service
     participant DB as PostgreSQL
 
-    Reception->>Gateway: POST /api/v1/patients (Demographics, Guardian Data)
-    Gateway->>Gateway: Validate input via class-validator DTO
-    Gateway->>PatientMod: createPatient(dto, tenantId)
-    PatientMod->>DB: INSERT INTO patients (tenant_id, name, contact, status)
-    DB-->>PatientMod: Created Record (id: uuid)
-    PatientMod->>Audit: Record Intake Action (staffId, patientId, timestamp)
-    PatientMod-->>Gateway: Sanitized Patient Summary
-    Gateway-->>Reception: HTTP 201 Created (Patient Card View)
+    Reception->>API: Create patient (demographics, guardian data)
+    API->>Guards: JWT, Roles, Permissions, ModuleEnabled
+    API->>API: Validate input via class-validator DTO
+    API->>PatientMod: create(dto) within clinic-unit context
+    PatientMod->>DB: INSERT patient and PatientClinicUnit link
+    DB-->>PatientMod: Created record
+    PatientMod-->>API: Patient summary
+    API-->>Reception: 201 Created
 ```
 
-## 2. Clinical Evolution & Document Attachment Pipeline
+Whether an operation writes an `AuditLog` or `AccessLog` entry is decided per service; not every operation is logged.
 
-When a medical or psychological consultation concludes:
-1. **Practitioner Drafts Evolution:** Clinical notes are entered via the web portal interface.
-2. **Document Attachment (Optional):** Practitioner uploads diagnostic files or test score sheets.
-3. **Stream to Object Storage:** File payload is streamed via multipart upload to MinIO into the tenant's isolated bucket path:
-   ```
-   tenants/{tenantId}/patients/{patientId}/records/{recordId}/{fileUuid}.pdf
-   ```
-4. **Relational Linkage:** Metadata, file size, storage key, and upload checksum are persisted in PostgreSQL.
-5. **Report Generation (Async):** If a consolidated evaluation report is requested, a Bull job is dispatched:
-   - Worker retrieves historical notes, demographic data, and standardized diagnostic test scores.
-   - Worker renders the PDF document using `pdf-lib` / `docx` templates.
-   - Worker uploads the compiled report back to MinIO and updates the record status to `READY`.
+## 2. Clinical Evolution & Attachment Pipeline
+
+1. **Practitioner drafts an evolution** through the web application (clinical record versions and drafts are supported).
+2. **Optional attachment upload:** files are received by Multer and written to the `uploads/` directory on the container volume.
+3. **Relational linkage:** file metadata and path are persisted in PostgreSQL.
+4. **Storage service path:** patient, CMS and migration files go through `StorageService` (MinIO, with automatic fallback to private local disk).
+5. **Reports:** monthly and semester reports and other documents are generated with `pdf-lib` and `docx` inside the request flow; there is no report queue.
+
+## 3. Legacy Migration Pipeline
+
+1. A Google Drive import job (`drive-import` Bull queue) fetches legacy files.
+2. An OCR job (`ocr-processing` queue) sends documents to Google Cloud Vision through the `document-processing` module.
+3. Results are stored through `StorageService` and linked to patients for review.
+
+## 4. Agenda Transfer
+
+1. A user with the `ADMIN` or `RECEPTIONIST` role calls `transfer-agenda/preview` with source and target professionals and a period.
+2. The API returns affected sessions and conflicts without writing anything.
+3. On execution, `onConflict` selects `ABORT`, `SKIP` or `FORCE`. `FORCE` requires an `ADMIN` or `OWNER` user, an explicit confirmation flag and a reason.
+4. The frontend can export the conflict list as CSV.
